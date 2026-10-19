@@ -1,0 +1,12 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+fastf1==3.7.0
+python-dotenv==1.0.1
+pandas==2.2.2
+
+# ML-пайплайн передбачення (app/ml/, app/analysis.py)
+scipy==1.13.1
+scikit-learn==1.6.1
+lightgbm==4.6.0
+xgboost==2.1.4
+joblib==1.5.3

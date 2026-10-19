@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+cache/
+.env
+.pytest_cache/
+
+# Артефакти ML-пайплайна (app/ml/, app/analysis.py) - будуються з data/*.csv
+# при першому запиті, не мають лежати в git.
+models/
+analysis_cache/
+
+# Порожня локальна БД, кодом не використовується
+*.db

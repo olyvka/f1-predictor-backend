@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: f1-predictor-backend
+    env: docker
+    plan: free
+    envVars:
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: FASTF1_CACHE_DIR
+        value: /tmp/fastf1-cache
