@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 
 import pandas as pd
+from app.i18n import tr
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 
@@ -82,7 +83,7 @@ def _time_to_seconds(value) -> float | None:
 def _race_id(year: int, round_number: int) -> int:
     race = _races[(_races["year"] == year) & (_races["round"] == round_number)]
     if race.empty:
-        raise ValueError(f"Етап {round_number} сезону {year} відсутній у датасеті")
+        raise ValueError(tr("round_not_found", round=round_number, year=year))
     return int(race.iloc[0]["raceId"])
 
 
@@ -92,7 +93,7 @@ def _last_race_id_of_season(year: int) -> int:
     очки за весь сезон (це кумулятивний залік по кожній гонці)."""
     season_races = _races[_races["year"] == year]
     if season_races.empty:
-        raise ValueError(f"Сезон {year} відсутній у датасеті")
+        raise ValueError(tr("season_not_found", year=year))
     return season_races.loc[season_races["round"].idxmax(), "raceId"]
 
 
@@ -106,7 +107,7 @@ def get_season_races(year: int) -> list[dict]:
     та (де відомо) дати практик/кваліфікації/спринту."""
     races = _races[_races["year"] == year].sort_values("round")
     if races.empty:
-        raise ValueError(f"Сезон {year} відсутній у датасеті")
+        raise ValueError(tr("season_not_found", year=year))
     cols = [
         "raceId", "round", "name", "date", "time",
         "fp1_date", "fp1_time", "fp2_date", "fp2_time", "fp3_date", "fp3_time",
@@ -158,7 +159,7 @@ def get_race_results(year: int, round_number: int) -> list[dict]:
     race_id = _race_id(year, round_number)
     results = _results[_results["raceId"] == race_id]
     if results.empty:
-        raise ValueError(f"Результати гонки {round_number} сезону {year} відсутні в датасеті")
+        raise ValueError(tr("race_results_missing", round=round_number, year=year))
 
     merged = (
         results.merge(_drivers_slim, on="driverId", how="left")
@@ -196,7 +197,7 @@ def get_qualifying_results(year: int, round_number: int) -> list[dict]:
     race_id = _race_id(year, round_number)
     quali = _qualifying[_qualifying["raceId"] == race_id]
     if quali.empty:
-        raise ValueError(f"Результати кваліфікації етапу {round_number} сезону {year} відсутні в датасеті")
+        raise ValueError(tr("quali_results_missing", round=round_number, year=year))
 
     merged = (
         quali.merge(_drivers_slim, on="driverId", how="left")
@@ -225,10 +226,7 @@ def get_sprint_results(year: int, round_number: int) -> list[dict]:
     race_id = _race_id(year, round_number)
     sprint = _sprint_results[_sprint_results["raceId"] == race_id]
     if sprint.empty:
-        raise ValueError(
-            f"Результати спринту етапу {round_number} сезону {year} відсутні в датасеті "
-            f"(спринтів не було до 2021 і не на кожному етапі)"
-        )
+        raise ValueError(tr("sprint_results_missing", round=round_number, year=year))
 
     merged = (
         sprint.merge(_drivers_slim, on="driverId", how="left")
@@ -264,11 +262,7 @@ def get_session_results(year: int, round_number: int, session: str) -> list[dict
     Ergast-датасет результатів практик не має."""
     code = _SESSION_ALIASES.get(session.strip().upper())
     if code is None:
-        raise ValueError(
-            f"Сесія '{session}' недоступна в CSV-датасеті - тільки R/Race, Q/Qualifying, "
-            f"S/Sprint (практики FP1-3 результатів у Ergast не мають; скористайся "
-            f"FastF1-ендпоінтами /api/results, /api/laps)"
-        )
+        raise ValueError(tr("csv_session_unsupported", session=session))
     if code == "R":
         return get_race_results(year, round_number)
     if code == "Q":
@@ -290,7 +284,7 @@ def get_pit_stops(year: int, round_number: int) -> list[dict]:
     race_id = _race_id(year, round_number)
     stops = _pit_stops[_pit_stops["raceId"] == race_id]
     if stops.empty:
-        raise ValueError(f"Дані по піт-стопах етапу {round_number} сезону {year} відсутні в датасеті")
+        raise ValueError(tr("pitstops_missing", round=round_number, year=year))
 
     merged = stops.merge(_drivers_slim, on="driverId", how="left").sort_values(["lap", "stop"])
     return [

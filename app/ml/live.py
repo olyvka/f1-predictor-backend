@@ -30,6 +30,7 @@ import numpy as np
 import pandas as pd
 
 from app import fastf1_client
+from app.i18n import canonical, tr
 from app.ml.dataset import CATEGORICAL, CON_FORM, Dataset, constructor_race_table
 from app.ml.fastf1_features import (WEEKEND_FEATURES, add_pace_vs_grid, load_session_aggregates,
                                     weekend_features)
@@ -199,7 +200,7 @@ def _weekend_rows(dataset: Dataset, year: int, round_number: int, race_id: int,
     if practice.empty:
         practice, weather = _fetch_live_weekend(year, round_number)
         if practice.empty:
-            notes.append("Практики цього етапу недоступні - фічі вікенду (темп довгих серій, погода) відсутні")
+            notes.append(canonical("note_practice_missing"))
             return pd.DataFrame(columns=["driverId", *WEEKEND_FEATURES])
         practice["driverId"] = np.nan
         practice["raceId"] = race_id
@@ -228,7 +229,7 @@ def build_entry_list(dataset: Dataset, year: int, round_number: int,
     # склад "за замовчуванням" і джерело fallback-constructorId.
     past = dataset.raw[dataset.raw["date"] < race_date]
     if past.empty:
-        raise ValueError("Немає історичних даних до цієї гонки - неможливо побудувати аналіз")
+        raise ValueError(tr("note_no_history"))
     last_race_date = past["date"].max()
     last_lineup = past[past["date"] == last_race_date][["driverId", "constructor_name", "constructorId"]]
     last_constructor_of_driver = dict(zip(last_lineup["driverId"], last_lineup["constructorId"]))
@@ -243,7 +244,7 @@ def build_entry_list(dataset: Dataset, year: int, round_number: int,
             full_name = row.get("FullName")
             driver_id = _resolve_driver_id(dataset, code, full_name)
             if driver_id is None:
-                notes.append(f"Пілота '{full_name or code}' не вдалось зіставити з локальним датасетом - пропущено")
+                notes.append(canonical("note_driver_unmatched", name=full_name or code))
                 continue
             fallback_cid = last_constructor_of_driver.get(driver_id)
             cid, cname = _resolve_constructor_id(
@@ -266,14 +267,11 @@ def build_entry_list(dataset: Dataset, year: int, round_number: int,
             ))
         if entries:
             return entries, True, notes
-        notes.append("Кваліфікація завантажилась, але жодного пілота не вдалось зіставити - використано попередній відомий склад")
+        notes.append(canonical("note_quali_unmatched"))
 
     # Fallback: кваліфікації ще нема (або не вдалось завантажити) -
     # беремо склад пілотів/команд з останнього відомого етапу.
-    notes.append(
-        "Кваліфікація цього етапу ще недоступна - склад пілотів і фічі кваліфікації "
-        "взято/проігноровано за останнім відомим етапом; прогноз ґрунтується лише на формі команд/пілотів"
-    )
+    notes.append(canonical("note_quali_missing"))
     entries = [
         LiveDriverEntry(
             driver_id=int(r.driverId),
@@ -296,7 +294,7 @@ def build_feature_rows(dataset: Dataset, year: int, round_number: int) -> tuple[
     не існує для моделі - вона його не бачить)."""
     race_row = dataset.races[(dataset.races["year"] == year) & (dataset.races["round"] == round_number)]
     if race_row.empty:
-        raise ValueError(f"Етап {round_number} сезону {year} відсутній у календарі датасету")
+        raise ValueError(tr("round_not_in_calendar", round=round_number, year=year))
     race_row = race_row.iloc[0]
     race_id = int(race_row["raceId"])
     race_date = race_row["date"]

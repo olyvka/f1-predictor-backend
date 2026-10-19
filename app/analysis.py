@@ -31,6 +31,7 @@ from app.ml import config, live
 from app.ml.dataset import get_dataset
 from app.ml.predict import predict_two_stage
 from app.ml.train import get_model_bundle
+from app.i18n import canonical, get_lang, translate_cached_uk, tr
 
 MODEL_VERSION = "v2.3"  # змінюється разом з моделлю - інвалідує analysis_cache/
 
@@ -94,7 +95,116 @@ FEATURE_LABELS = {
     "driverId_cat": "Пілот (ID)",
     "constructorId_cat": "Команда (ID)",
     "circuitId_cat": "Траса (ID)",
+    # Решта фіч моделі (FEATURE_ORDER) і фічі практик старіших версій моделі,
+    # що ще лежать у кеші прогнозів.
+    "q1_q2_delta": "Прогрес Q1 → Q2 (с)",
+    "q2_q3_delta": "Прогрес Q2 → Q3 (с)",
+    "progressed_to_q3": "Пройшов у Q3",
+    "driver_avg_quali_10": "Середня кваліфікація пілота (10 етапів)",
+    "driver_quali_std_10": "Стабільність кваліфікацій пілота",
+    "driver_gain_10": "Приріст позицій пілота (10 етапів)",
+    "driver_lap1_gain_5": "Позиції на першому колі (5 етапів)",
+    "driver_dnf_rate_10": "Частка сходів пілота (10 етапів)",
+    "con_avg_quali_5": "Кваліфікація команди (5 етапів)",
+    "track_races": "Гонок пілота на трасі",
+    "fp_median_ms": "Медіанне коло практик",
+    "fp_pace_std": "Розкид темпу на практиках",
+    "fp_rank": "Місце за темпом практик",
+    "fp_gap_to_leader_pct": "Відставання від лідера практик (%)",
 }
+
+# Англійські підписи тих самих фіч. Підпис у відповіді підставляється мовою
+# запиту в момент видачі (_localize), а не при побудові - кеш прогнозів
+# лишається одномовним (українським) і спільним для обох мов.
+FEATURE_LABELS_EN = {
+    "quali_position": "Qualifying position",
+    "best_quali_sec": "Qualifying lap time",
+    "delta_to_pole_sec": "Gap to pole (s)",
+    "delta_to_pole_pct": "Gap to pole (%)",
+    "grid": "Grid position",
+    "grid_penalty": "Grid penalty",
+    "driver_quali_pace_3": "Driver qualifying pace (3 rounds)",
+    "driver_quali_pace_5": "Driver qualifying pace (5 rounds)",
+    "con_quali_pace_3": "Team qualifying pace (3 rounds)",
+    "con_quali_pace_5": "Team qualifying pace (5 rounds)",
+    "driver_avg_pos_5": "Driver average finish (5 rounds)",
+    "driver_avg_pos_10": "Driver average finish (10 rounds)",
+    "driver_avg_quali_5": "Driver average qualifying (5 rounds)",
+    "driver_pts_5": "Driver points (5 rounds)",
+    "driver_pts_10": "Driver points (10 rounds)",
+    "driver_consistency_5": "Driver consistency",
+    "driver_dnf_rate_5": "Driver DNF rate (5 rounds)",
+    "driver_gain_5": "Driver average places gained",
+    "driver_overtakes_5": "Driver overtakes (5 rounds)",
+    "driver_cum_avg_pos": "Career average position",
+    "driver_career_races": "Career races",
+    "is_rookie": "Rookie",
+    "con_avg_pos_5": "Team form (5 rounds)",
+    "con_avg_pos_10": "Team form (10 rounds)",
+    "con_pts_5": "Team points (5 rounds)",
+    "con_dnf_rate_5": "Team DNF rate",
+    "track_avg_pos": "Driver average finish at the circuit",
+    "track_avg_quali": "Driver average qualifying at the circuit",
+    "track_affinity": "Circuit affinity",
+    "circuit_avg_dnf": "Circuit DNF rate",
+    "circuit_avg_finish": "Average finish at the circuit",
+    "teammate_quali_delta_5": "Versus teammate (qualifying)",
+    "teammate_finish_delta_5": "Versus teammate (finish)",
+    "new_team_period": "New period with the team",
+    "early_pace_gap_5": "Early-lap pace (gap, 5 rounds)",
+    "early_pace_rank_5": "Early-lap pace (rank, 5 rounds)",
+    "early_pace_std_5": "Early-lap pace consistency",
+    "wet_skill": "Wet-weather skill",
+    "comeback_score": "Comeback ability",
+    "pr_long_run_gap_pct": "Practice long-run pace",
+    "pr_long_run_pos": "Long-run pace rank",
+    "pr_pace_vs_grid": "Race pace versus grid position",
+    "pr_best_lap_gap_pct": "Best practice lap",
+    "pr_deg_rel": "Practice tyre degradation",
+    "pr_long_run_laps": "Long-run laps",
+    "pr_total_laps": "Practice laps",
+    "wx_fp_rain": "Rain in practice",
+    "wx_q_rain": "Rain in qualifying",
+    "wx_track_temp": "Track temperature",
+    "champ_points": "Championship points",
+    "champ_position": "Championship position",
+    "champ_wins": "Championship wins",
+    "round": "Season round",
+    "driver_age": "Driver age",
+    "driverId_cat": "Driver (ID)",
+    "constructorId_cat": "Team (ID)",
+    "circuitId_cat": "Circuit (ID)",
+    "q1_q2_delta": "Q1 → Q2 improvement (s)",
+    "q2_q3_delta": "Q2 → Q3 improvement (s)",
+    "progressed_to_q3": "Reached Q3",
+    "driver_avg_quali_10": "Driver average qualifying (10 rounds)",
+    "driver_quali_std_10": "Driver qualifying consistency",
+    "driver_gain_10": "Driver places gained (10 rounds)",
+    "driver_lap1_gain_5": "First-lap places gained (5 rounds)",
+    "driver_dnf_rate_10": "Driver DNF rate (10 rounds)",
+    "con_avg_quali_5": "Team qualifying (5 rounds)",
+    "track_races": "Driver races at the circuit",
+    "fp_median_ms": "Median practice lap",
+    "fp_pace_std": "Practice pace spread",
+    "fp_rank": "Practice pace rank",
+    "fp_gap_to_leader_pct": "Gap to practice leader (%)",
+}
+
+
+def _localize(result: dict) -> dict:
+    """Прогноз мовою запиту: підписи фіч - за кодом фічі (для обох мов: у
+    старішому кеші частина фіч лишилась без підпису), примітки - за
+    шаблонами (у т.ч. в кеші, побудованому раніше). Оригінал не змінюється."""
+    labels = FEATURE_LABELS_EN if get_lang() == "en" else FEATURE_LABELS
+    out = dict(result)
+    fi = result.get("feature_importance") or {}
+    out["feature_importance"] = {
+        model: [{**item, "label": labels.get(item.get("feature"), item.get("label"))} for item in items]
+        for model, items in fi.items()
+    }
+    if get_lang() != "uk" and isinstance(result.get("data"), dict) and result["data"].get("notes"):
+        out["data"] = {**result["data"], "notes": [translate_cached_uk(n) for n in result["data"]["notes"]]}
+    return out
 
 
 def _cache_path(year: int, round_number: int) -> str:
@@ -166,7 +276,7 @@ def _compute(year: int, round_number: int) -> dict:
 
     race_row = dataset.races[(dataset.races["year"] == year) & (dataset.races["round"] == round_number)]
     if race_row.empty:
-        raise ValueError(f"Етап {round_number} сезону {year} відсутній у календарі датасету")
+        raise ValueError(tr("round_not_in_calendar", round=round_number, year=year))
     race_row = race_row.iloc[0]
     race_id = int(race_row["raceId"])
     race_date = race_row["date"]
@@ -197,7 +307,7 @@ def _compute(year: int, round_number: int) -> dict:
     if stage == "completed" and source != "static_dataset":
         actual_by_code = _fetch_actual_results(year, round_number)
         if actual_by_code:
-            notes.append("Фактичний результат гонки додано лише для порівняння - модель його не бачила")
+            notes.append(canonical("note_actual_added"))
 
     code_by_driver = dict(zip(dataset.drivers["driverId"], dataset.drivers["code"]))
 
@@ -295,10 +405,10 @@ def analyze_race(year: int, round_number: int, refresh: bool = False) -> dict:
         with open(path, encoding="utf-8") as f:
             cached = json.load(f)
         if cached.get("model", {}).get("version") == MODEL_VERSION:
-            return cached
+            return _localize(cached)
 
     result = _compute(year, round_number)
     os.makedirs(config.ANALYSIS_CACHE_DIR, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
-    return result
+    return _localize(result)

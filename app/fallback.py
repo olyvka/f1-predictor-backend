@@ -19,6 +19,7 @@ import pandas as pd
 
 from app import csv_data, event_info, fastf1_client, openf1_client
 from app.openf1_client import OpenF1Unavailable, parse_date
+from app.i18n import tr
 
 # Колонки кола в тому ж порядку, що й у FastF1 (Session.laps).
 LAP_COLUMNS = [
@@ -113,7 +114,7 @@ def _openf1_laps(year: int, round_number: int, session: str) -> list[dict]:
     session_start = _origin(s)
     raw_laps = openf1_client.session_data(s, "laps")
     if not raw_laps:
-        raise OpenF1Unavailable("OpenF1 не має кіл для цієї сесії")
+        raise OpenF1Unavailable(tr("openf1_no_laps"))
     # Коло повернення в бокси після фінішу OpenF1 віддає без часу - FastF1
     # його не показує. Відкидаємо кола без часу після останнього залікового.
     last_timed: dict[int, int] = {}
@@ -206,7 +207,7 @@ def _openf1_weather(year: int, round_number: int, session: str) -> list[dict]:
     session_start = _origin(s)
     rows = openf1_client.session_data(s, "weather")
     if not rows:
-        raise OpenF1Unavailable("OpenF1 не має погоди для цієї сесії")
+        raise OpenF1Unavailable(tr("openf1_no_weather"))
     return [
         {
             "Time": _seconds(parse_date(w["date"]) - session_start),
@@ -231,7 +232,7 @@ _lap_times: pd.DataFrame | None = None  # ~600 тис. рядків - ванта
 
 def _csv_laps(year: int, round_number: int, session: str) -> list[dict]:
     if _code(session) != "R":
-        raise FallbackUnavailable("У датасеті є кола лише гонок, без практик, кваліфікацій і спринтів")
+        raise FallbackUnavailable(tr("csv_laps_races_only"))
 
     global _lap_times
     if _lap_times is None:
@@ -240,7 +241,7 @@ def _csv_laps(year: int, round_number: int, session: str) -> list[dict]:
     race_id = csv_data._race_id(year, round_number)
     rows = _lap_times[_lap_times["raceId"] == race_id]
     if rows.empty:
-        raise FallbackUnavailable("У датасеті немає кіл цієї гонки")
+        raise FallbackUnavailable(tr("csv_no_laps"))
 
     people = csv_data._drivers_slim.set_index("driverId")
     results = csv_data._results[csv_data._results["raceId"] == race_id]
@@ -307,7 +308,7 @@ def get_session_weather(year: int, round_number: int, session: str) -> list[dict
     try:
         return _openf1_weather(year, round_number, session)
     except OpenF1Unavailable as e:
-        raise FallbackUnavailable(f"{e}; у датасеті погоди немає") from e
+        raise FallbackUnavailable(tr("weather_not_in_dataset", error=e)) from e
 
 
 def _fastest(laps: list[dict]) -> dict | None:
@@ -334,7 +335,7 @@ def get_driver_summary(year: int, round_number: int, session: str, driver: str) 
     wanted = driver.upper()
     row = next((r for r in results if wanted in (str(r.get("Abbreviation")).upper(), str(r.get("DriverNumber")))), None)
     if row is None:
-        raise FallbackUnavailable(f"Пілот '{driver}' не знайдений у цій сесії")
+        raise FallbackUnavailable(tr("driver_not_in_session", driver=driver))
 
     code = row.get("Abbreviation") or wanted
     media = event_info.driver_media(year, code)

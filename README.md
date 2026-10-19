@@ -68,6 +68,23 @@ brew install libomp
 `FRONTEND_REQUIREMENTS.md` описує контракт саме FastF1-ендпоінтів - на нього й
 орієнтуйся, якщо вже підключив фронт до `/api/results`.
 
+## Мова відповідей
+
+API відповідає українською (за замовчуванням) або англійською. Мова береться
+з параметра `?lang=uk|en`, інакше із заголовка `Accept-Language` (фронт шле
+мову інтерфейсу). Відповідь містить `Content-Language` і `Vary: Accept-Language`.
+
+Перекладаються повідомлення про помилки, підписи фіч і примітки прогнозу
+(`/api/analysis`) та назви складових оцінки сезону. Тексти — у
+`app/i18n.py` (`MESSAGES`), підписи фіч — `FEATURE_LABELS` / `FEATURE_LABELS_EN`
+у `app/analysis.py`. Кеш прогнозів (`analysis_cache/`) лишається українським
+і перекладається в момент відповіді, тож його не треба перебудовувати.
+
+```bash
+curl -H "Accept-Language: en" http://localhost:8000/api/event-summary/2024/99
+# {"detail": "Round 99 of the 2024 season is not in the dataset"}
+```
+
 ## Тести
 
 ```bash

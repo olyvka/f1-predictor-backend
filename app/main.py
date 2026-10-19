@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from app import analysis, csv_data, driver_stats, event_info, fallback, fastf1_client, predictor
+from app.i18n import LanguageMiddleware, tr
 
 app = FastAPI(
     title="F1 Predictor API",
@@ -19,6 +20,9 @@ origins = [
     "http://localhost:3000",
     os.getenv("FRONTEND_ORIGIN", ""),
 ]
+# Мова відповідей (?lang= / Accept-Language) - див. app/i18n.py. Додано
+# першим, тож CORS-middleware (додане пізніше) обгортає його ззовні.
+app.add_middleware(LanguageMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o for o in origins if o],
@@ -51,14 +55,14 @@ def _fastf1_or_fallback(year: int, round_number: int, session: str, primary, bac
             return primary()
         except Exception as e:
             if not _not_loaded(e):
-                raise HTTPException(status_code=404, detail=f"{not_found}: {e}")
+                raise HTTPException(status_code=404, detail=tr("unavailable_with_reason", what=tr(not_found), error=e))
             _NO_LIVE_TIMING.add(key)
     try:
         return backup()
     except Exception as e:
         raise HTTPException(
             status_code=404,
-            detail=f"{not_found}. FastF1 більше не завантажує нові сесії, а запасні джерела не мають цих даних: {e}",
+            detail=tr("fallback_failed", what=tr(not_found), error=e),
         )
 
 
@@ -279,7 +283,7 @@ def driver_summary(year: int, round_number: int, session: str, driver: str):
         year, round_number, session,
         lambda: fastf1_client.get_driver_summary(year, round_number, session, driver),
         lambda: fallback.get_driver_summary(year, round_number, session, driver),
-        "Дані пілота недоступні",
+        "driver_data_unavailable",
     )
 
 
@@ -299,7 +303,7 @@ def session_laps(
         year, round_number, session,
         lambda: fastf1_client.get_session_laps(year, round_number, session, driver_list),
         lambda: fallback.get_session_laps(year, round_number, session, driver_list),
-        "Кола недоступні",
+        "laps_unavailable",
     )
 
 
@@ -316,13 +320,13 @@ def compare_drivers(
     if len(driver_list) < 2:
         raise HTTPException(
             status_code=400,
-            detail="Потрібно щонайменше 2 пілоти для порівняння, напр. ?drivers=VER,HAM",
+            detail=tr("compare_needs_two"),
         )
     return _fastf1_or_fallback(
         year, round_number, session,
         lambda: fastf1_client.compare_drivers_laps(year, round_number, session, driver_list),
         lambda: fallback.compare_drivers_laps(year, round_number, session, driver_list),
-        "Порівняння недоступне",
+        "compare_unavailable",
     )
 
 
@@ -334,7 +338,7 @@ def session_weather(year: int, round_number: int, session: str):
         year, round_number, session,
         lambda: fastf1_client.get_session_weather(year, round_number, session),
         lambda: fallback.get_session_weather(year, round_number, session),
-        "Погода недоступна",
+        "weather_unavailable",
     )
 
 
@@ -373,4 +377,4 @@ def race_analysis(year: int, round_number: int, refresh: bool = False):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Не вдалось побудувати аналіз прогнозу: {e}")
+        raise HTTPException(status_code=500, detail=tr("analysis_failed", error=e))

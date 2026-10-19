@@ -12,6 +12,7 @@ import threading
 import fastf1
 import pandas as pd
 import requests
+from app.i18n import tr
 
 # Скільки чекати мережеву відповідь від джерел даних FastF1:
 # (timeout з'єднання, timeout читання відповіді), секунди.
@@ -253,7 +254,7 @@ def get_driver_summary(year: int, round_number: int, session: str, driver: str) 
     try:
         driver_info = _clean_series(fsession.get_driver(driver))
     except ValueError as e:
-        raise ValueError(f"Пілот '{driver}' не знайдений у цій сесії: {e}")
+        raise ValueError(f"{tr('driver_not_in_session', driver=driver)}: {e}")
 
     abbreviation = driver_info.get("Abbreviation", driver)
     laps = fsession.laps.pick_drivers([abbreviation])

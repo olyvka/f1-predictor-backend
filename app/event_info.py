@@ -22,6 +22,7 @@ import pandas as pd
 
 from app import csv_data
 from app.csv_data import _time_to_seconds
+from app.i18n import tr
 
 _races = csv_data._races
 _results = csv_data._results
@@ -77,7 +78,7 @@ def is_dnf(status) -> bool:
 def _race_row(year: int, round_number: int) -> pd.Series:
     race = _races_dated[(_races_dated["year"] == year) & (_races_dated["round"] == round_number)]
     if race.empty:
-        raise ValueError(f"Етап {round_number} сезону {year} відсутній у датасеті")
+        raise ValueError(tr("round_not_found", round=round_number, year=year))
     return race.iloc[0]
 
 

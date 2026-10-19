@@ -19,6 +19,7 @@ import pandas as pd
 from app import csv_data
 from app.csv_data import _time_to_seconds
 from app.event_info import driver_media, is_dnf
+from app.i18n import tr
 
 # Сходи через аварію чи зіткнення (на відміну від технічних). Хто винен,
 # датасет не розрізняє - "Collision" однаковий для обох учасників.
@@ -96,7 +97,7 @@ def _person(driver_id: int, year: int | None = None) -> dict:
 def driver_id_by_ref(driver_ref: str) -> int:
     row = _people[_people["driverRef"] == driver_ref]
     if row.empty:
-        raise ValueError(f"Пілот '{driver_ref}' відсутній у датасеті")
+        raise ValueError(tr("driver_not_found", driver=driver_ref))
     return int(row.iloc[0]["driverId"])
 
 
@@ -112,7 +113,7 @@ def _result_label(r) -> str:
 def _season_races(year: int) -> pd.DataFrame:
     season = _races[_races["year"] == year].sort_values("round")
     if season.empty:
-        raise ValueError(f"Сезон {year} відсутній у датасеті")
+        raise ValueError(tr("season_not_found", year=year))
     return season
 
 
@@ -316,13 +317,10 @@ def _teammate_summary(year: int, driver_id: int) -> list[dict]:
     return out
 
 
+# (ключ, код підпису, код пояснення) - тексти в app/i18n.py, мовою запиту.
 RATING_COMPONENTS = [
-    ("quali_vs_teammate", "Кваліфікація проти напарника", "частка виграних дуелей"),
-    ("race_vs_teammate", "Гонка проти напарника", "частка виграних дуелей, коли обидва фінішували"),
-    ("positions_gained", "Позиції в гонці", "середньо виграних позицій від старту до фінішу"),
-    ("consistency", "Стабільність", "розкид фінішних позицій (менше - краще)"),
-    ("incident_free", "Без аварій", "частка гонок без сходу через аварію чи зіткнення (вину датасет не розрізняє)"),
-    ("results", "Результати", "середньо очок за гонку"),
+    (key, f"rating_{key}", f"rating_{key}_hint")
+    for key in ("quali_vs_teammate", "race_vs_teammate", "positions_gained", "consistency", "incident_free", "results")
 ]
 
 
@@ -366,7 +364,7 @@ def get_season_rating(year: int, driver_id: int) -> dict | None:
     for key, label, hint in RATING_COMPONENTS:
         value = table.at[driver_id, key]
         components.append({
-            "key": key, "label": label, "hint": hint,
+            "key": key, "label": tr(label), "hint": tr(hint),
             "value": None if pd.isna(value) else round(float(abs(value) if key == "consistency" else value), 3),
             "percentile": None if pd.isna(value) else round(float(pct.at[driver_id, key])),
         })
@@ -388,7 +386,7 @@ def get_driver_season(year: int, driver_ref: str) -> dict:
     season = _season_races(year)
     own = _results[(_results["year"] == year) & (_results["driverId"] == driver_id)].sort_values("round")
     if own.empty:
-        raise ValueError(f"Пілот '{driver_ref}' не їхав у сезоні {year}")
+        raise ValueError(tr("driver_not_in_season", driver=driver_ref, year=year))
     sprints = _sprints[(_sprints["year"] == year) & (_sprints["driverId"] == driver_id)].set_index("round")
     quali = _quali[(_quali["year"] == year) & (_quali["driverId"] == driver_id)].set_index("round")
     standings = (csv_data._driver_standings[csv_data._driver_standings["driverId"] == driver_id]
@@ -459,7 +457,7 @@ def get_driver_career(driver_ref: str) -> dict:
     driver_id = driver_id_by_ref(driver_ref)
     own = _results[_results["driverId"] == driver_id].sort_values(["year", "round"])
     if own.empty:
-        raise ValueError(f"У датасеті немає гонок пілота '{driver_ref}'")
+        raise ValueError(tr("driver_no_races", driver=driver_ref))
     poles = _poles(own)
     # Найшвидші кола відомі лише з 2004 - для старших кар'єр число було б
     # заниженим, тож не показуємо його зовсім.
@@ -517,7 +515,7 @@ def get_driver_event(year: int, round_number: int, driver_ref: str) -> dict:
     driver_id = driver_id_by_ref(driver_ref)
     race = _races[(_races["year"] == year) & (_races["round"] == round_number)]
     if race.empty:
-        raise ValueError(f"Етап {round_number} сезону {year} відсутній у датасеті")
+        raise ValueError(tr("round_not_found", round=round_number, year=year))
     race = race.iloc[0]
     season = _season_races(year)
     st = csv_data._driver_standings

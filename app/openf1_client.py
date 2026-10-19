@@ -25,6 +25,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 from app import fastf1_client
+from app.i18n import tr
 
 API = "https://api.openf1.org/v1"
 FIRST_YEAR = 2023  # раніших сезонів в OpenF1 немає
@@ -75,7 +76,7 @@ def _get(endpoint: str, params: dict, *, disk_cache: bool = True) -> list[dict]:
         data = res.json()
         break
     else:
-        raise OpenF1Unavailable(f"OpenF1 не відповідає (ліміт запитів): {path}")
+        raise OpenF1Unavailable(tr("openf1_rate_limited", path=path))
 
     if disk_cache:
         with open(cache_file, "w", encoding="utf-8") as f:
@@ -103,7 +104,7 @@ def find_session(year: int, round_number: int, session: str) -> dict:
     OpenF1 немає, тож зіставляємо за часом старту сесії з календаря FastF1
     (календар FastF1 приходить не з живого таймінгу й працює далі)."""
     if year < FIRST_YEAR:
-        raise OpenF1Unavailable(f"OpenF1 має дані лише з {FIRST_YEAR} року")
+        raise OpenF1Unavailable(tr("openf1_since", year=FIRST_YEAR))
 
     code = fastf1_client.SESSION_NAME_TO_CODE.get(session, session).upper()
     wanted = next(
@@ -111,14 +112,14 @@ def find_session(year: int, round_number: int, session: str) -> dict:
         None,
     )
     if not wanted or not wanted.get("date_utc"):
-        raise OpenF1Unavailable(f"Сесії {session} немає в календарі етапу {round_number}")
+        raise OpenF1Unavailable(tr("openf1_session_not_in_calendar", session=session, round=round_number))
 
     start = datetime.fromisoformat(wanted["date_utc"]).replace(tzinfo=timezone.utc)
     for s in _season_sessions(year):
         begins = parse_date(s.get("date_start"))
         if begins and abs(begins - start) < timedelta(hours=2):
             return s
-    raise OpenF1Unavailable(f"OpenF1 не знайшов сесію {session} етапу {round_number} {year}")
+    raise OpenF1Unavailable(tr("openf1_session_not_found", session=session, round=round_number, year=year))
 
 
 def session_data(session: dict, endpoint: str) -> list[dict]:
