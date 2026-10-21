@@ -27,6 +27,7 @@ import numpy as np
 import pandas as pd
 
 from app import fastf1_client
+from app import explain
 from app.ml import config, live
 from app.ml.dataset import get_dataset
 from app.ml.predict import predict_two_stage
@@ -202,6 +203,15 @@ def _localize(result: dict) -> dict:
         model: [{**item, "label": labels.get(item.get("feature"), item.get("label"))} for item in items]
         for model, items in fi.items()
     }
+    if any(p.get("explanation") for p in result.get("predictions") or []):
+        out["predictions"] = [
+            {**p, "explanation": {
+                **p["explanation"],
+                "factors": [{**f, "label": labels.get(f["feature"], f["feature"])}
+                            for f in p["explanation"]["factors"]],
+            }} if p.get("explanation") else p
+            for p in result["predictions"]
+        ]
     if get_lang() != "uk" and isinstance(result.get("data"), dict) and result["data"].get("notes"):
         out["data"] = {**result["data"], "notes": [translate_cached_uk(n) for n in result["data"]["notes"]]}
     return out
@@ -301,6 +311,7 @@ def _compute(year: int, round_number: int) -> dict:
     pred = predict_two_stage(dataset, bundle, rows, alpha=bundle.best_alpha)
     pred = pred.merge(display, on="driverId", how="left")
     pred = pred.sort_values("pred_rank")
+    explanations = explain.explain_rows(dataset, bundle, rows, bundle.best_alpha)
 
     # Факт для порівняння - тільки коли гонка вже відбулась.
     actual_by_code: dict[str, dict] = {}
@@ -337,6 +348,7 @@ def _compute(year: int, round_number: int) -> dict:
             "p_dnf": _native(r.p_dnf),
             "actual_position": actual_position,
             "hit": hit,
+            "explanation": explanations.get(int(r.driverId)),
         })
 
     result = {
@@ -370,6 +382,9 @@ def _compute(year: int, round_number: int) -> dict:
     return result
 
 
+STATUS_METRICS = ("mae_test", "top1", "podium_set", "top10_set", "spearman_mean", "dnf_auc_test")
+
+
 def analysis_status(year: int, round_number: int) -> dict:
     """Чи порахований прогноз етапу для поточної MODEL_VERSION - лише
     читає analysis_cache/, нічого не тренує і не рахує (миттєво). Для
@@ -384,7 +399,7 @@ def analysis_status(year: int, round_number: int) -> dict:
         with open(path, encoding="utf-8") as f:
             cached = json.load(f)
     if not cached or cached.get("model", {}).get("version") != MODEL_VERSION:
-        return {"ready": False, "generated_at": None, "top3": [], "hits": None}
+        return {"ready": False, "generated_at": None, "top3": [], "hits": None, "metrics": None}
 
     preds = sorted(cached["predictions"], key=lambda p: p["predicted_position"])
     top3 = [{k: p.get(k) for k in ("driver", "team", "predicted_position", "actual_position", "p_dnf")}
@@ -392,7 +407,10 @@ def analysis_status(year: int, round_number: int) -> dict:
     has_actual = any(p.get("actual_position") is not None for p in preds)
     hits = (sum(1 for p in top3 if p["actual_position"] is not None and p["actual_position"] <= 3)
             if has_actual else None)
-    return {"ready": True, "generated_at": cached.get("generated_at"), "top3": top3, "hits": hits}
+    # Якість моделі на тестових сезонах - для лендінгу, без важкого /analysis.
+    metrics = {k: cached["model"].get("metrics", {}).get(k) for k in STATUS_METRICS}
+    return {"ready": True, "generated_at": cached.get("generated_at"), "top3": top3, "hits": hits,
+            "metrics": metrics}
 
 
 def analyze_race(year: int, round_number: int, refresh: bool = False) -> dict:
@@ -405,10 +423,31 @@ def analyze_race(year: int, round_number: int, refresh: bool = False) -> dict:
         with open(path, encoding="utf-8") as f:
             cached = json.load(f)
         if cached.get("model", {}).get("version") == MODEL_VERSION:
-            return _localize(cached)
+            if _has_explanations(cached):
+                return _localize(cached)
+            # Прогноз з кешу, порахований до появи пояснень: перераховуємо,
+            # але лише якщо дані не гірші за збережені (live-джерела з часом
+            # можуть стати недоступними - тоді краще старий прогноз без
+            # пояснень, ніж новий, побудований на меншому наборі даних).
+            try:
+                fresh = _compute(year, round_number)
+            except Exception:
+                return _localize(cached)
+            if fresh["data"]["source"] != cached.get("data", {}).get("source"):
+                return _localize(cached)
+            _save(path, fresh)
+            return _localize(fresh)
 
     result = _compute(year, round_number)
+    _save(path, result)
+    return _localize(result)
+
+
+def _has_explanations(result: dict) -> bool:
+    return any(p.get("explanation") for p in result.get("predictions", []))
+
+
+def _save(path: str, result: dict) -> None:
     os.makedirs(config.ANALYSIS_CACHE_DIR, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
-    return _localize(result)
