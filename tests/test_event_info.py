@@ -135,7 +135,7 @@ def _write_cache(tmp_path, monkeypatch, version, preds):
 
 def test_analysis_status_not_ready_without_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(analysis, "_cache_path", lambda y, r: str(tmp_path / "none.json"))
-    assert analysis.analysis_status(2024, 6) == {"ready": False, "generated_at": None, "top3": [], "hits": None}
+    assert analysis.analysis_status(2024, 6) == {"ready": False, "generated_at": None, "top3": [], "hits": None, "metrics": None}
 
 
 def test_analysis_status_ignores_cache_of_other_model(tmp_path, monkeypatch):
