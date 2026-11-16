@@ -591,13 +591,16 @@ _cached: Dataset | None = None
 
 def get_dataset(force_rebuild: bool = False) -> Dataset:
     """Лінива побудова датасету: один раз за життя процесу, з диск-кешем
-    (joblib) між рестартами процесу, доки не зміняться CSV у data/."""
+    (joblib) між рестартами процесу, доки не зміняться CSV у data/.
+    fingerprint (mtime+розмір CSV) перевіряється на кожен виклик - це
+    кілька os.stat, - тож після оновлення даних (app/data_update.py) датасет,
+    а за ним і моделі (get_model_bundle), перебудуються без рестарту."""
     global _cached
     with _lock:
-        if _cached is not None and not force_rebuild:
+        current_fp = _fingerprint()
+        if _cached is not None and not force_rebuild and _cached.fingerprint == current_fp:
             return _cached
 
-        current_fp = _fingerprint()
         if not force_rebuild and os.path.exists(CACHE_FILE):
             try:
                 loaded: Dataset = joblib.load(CACHE_FILE)

@@ -864,3 +864,5 @@ driverId,driverRef,number,code,forename,surname,dob,nationality,url
 864,"bortoleto",5,"BOR","Gabriel","Bortoleto","2004-10-14","Brazilian","https://en.wikipedia.org/wiki/Gabriel_Bortoleto"
 865,"hadjar",6,"HAD","Isack","Hadjar","2004-09-28","French","https://en.wikipedia.org/wiki/Isack_Hadjar"
 866,"arvid_lindblad",41,"LIN","Arvid","Lindblad","2007-08-08","British","https://en.wikipedia.org/wiki/Arvid_Lindblad"
+867,"ryo_hirakawa",50,"HIR","Ryo","Hirakawa","1994-03-07","Japanese","https://en.wikipedia.org/wiki/Ryo_Hirakawa"
+868,"rafael_camara",51,"CAM","Rafael","Câmara","2005-05-05","Brazilian","https://en.wikipedia.org/wiki/Rafael_C%C3%A2mara"

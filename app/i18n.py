@@ -250,6 +250,26 @@ MESSAGES: dict[str, dict[str, str]] = {
         "uk": "Немає історичних даних до цієї гонки - неможливо побудувати аналіз",
         "en": "There is no historical data before this race - the analysis cannot be built",
     },
+    "fantasy_unavailable": {
+        "uk": "Дані F1 Fantasy зараз недоступні: {error}",
+        "en": "F1 Fantasy data is unavailable right now: {error}",
+    },
+    "fantasy_season_only": {
+        "uk": "F1 Fantasy доступна лише для поточного сезону ({season})",
+        "en": "F1 Fantasy is only available for the current season ({season})",
+    },
+    "fantasy_unknown_assets": {
+        "uk": "Невідомі пілоти чи команди F1 Fantasy: {codes}",
+        "en": "Unknown F1 Fantasy drivers or teams: {codes}",
+    },
+    "fantasy_bad_team": {
+        "uk": "Поточний склад має містити 5 різних пілотів і 2 різні команди",
+        "en": "The current team must have 5 different drivers and 2 different constructors",
+    },
+    "fantasy_no_lineup": {
+        "uk": "У бюджет {budget}M не вміщується жоден склад з 5 пілотів і 2 команд",
+        "en": "No lineup of 5 drivers and 2 constructors fits a {budget}M budget",
+    },
 }
 
 

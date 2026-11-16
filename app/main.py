@@ -1,16 +1,27 @@
 import os
+from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import analysis, csv_data, driver_stats, event_info, fallback, fastf1_client, predictor
+from app import analysis, csv_data, data_update, driver_stats, event_info, fallback, fastf1_client, predictor
 from app.i18n import LanguageMiddleware, tr
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Свіжі data/*.csv з Kaggle: перевірка при старті й далі кожні
+    # DATA_UPDATE_HOURS годин у фоновому потоці (app/data_update.py).
+    data_update.start_background_updates()
+    yield
+
 
 app = FastAPI(
     title="F1 Predictor API",
     description="Бекенд для дипломної роботи: аналіз та передбачення результатів Формули-1",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # У проді краще задавати через змінну середовища FRONTEND_ORIGIN,
@@ -134,6 +145,20 @@ def pit_stops(year: int, round_number: int):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@app.get("/api/data/status")
+def data_status():
+    """Стан локального датасету: версія Kaggle, коли перевіряли й
+    оновлювали, які файли змінились, остання помилка."""
+    return {**data_update.read_meta(), "update_every_hours": data_update.UPDATE_HOURS}
+
+
+@app.post("/api/data/update")
+def data_update_now():
+    """Перевірити Kaggle й оновити дані зараз (не чекаючи планової
+    перевірки) - напр. одразу після гонки. Не частіше ніж раз на 10 хв."""
+    return data_update.update_manually()
+
+
 @app.get("/api/event-summary/{year}/{round_number}")
 def event_summary(year: int, round_number: int):
     """Підсумок етапу з CSV (миттєво, без FastF1): подіум, поул, найшвидше
@@ -209,7 +234,7 @@ def list_sessions(year: int, round_number: int):
 def race_results(year: int, round_number: int):
     """Фактичні результати гонки (скорочення для /api/results/{year}/{round}/R)."""
     try:
-        return fastf1_client.get_session_results(year, round_number, "R")
+        return event_info.fill_session_media(fastf1_client.get_session_results(year, round_number, "R"), year)
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Race not found: {e}")
 
@@ -220,7 +245,8 @@ def session_results(year: int, round_number: int, session: str):
     (або повні назви: Race, Qualifying, Sprint, Sprint Qualifying, Practice 1...).
     Включає біо пілота, команду, стартову решітку, Q1/Q2/Q3, час/статус, очки."""
     try:
-        return fastf1_client.get_session_results(year, round_number, session)
+        return event_info.fill_session_media(
+            fastf1_client.get_session_results(year, round_number, session), year)
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Session not found: {e}")
 
@@ -229,7 +255,8 @@ def session_results(year: int, round_number: int, session: str):
 def session_drivers(year: int, round_number: int, session: str):
     """Короткий список пілотів сесії - для вибору перед /api/driver або /api/compare."""
     try:
-        return fastf1_client.get_session_drivers(year, round_number, session)
+        return event_info.fill_session_media(
+            fastf1_client.get_session_drivers(year, round_number, session), year)
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Session not found: {e}")
 
@@ -378,3 +405,4 @@ def race_analysis(year: int, round_number: int, refresh: bool = False):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=tr("analysis_failed", error=e))
+

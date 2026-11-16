@@ -68,12 +68,12 @@ def _media(driver_id: int, code: str | None, year: int | None) -> dict:
     пілота (за його гонками, а не лише за кодом: коди повторювались, напр.
     MSC у Міхаеля й Міка Шумахерів). Колір команди не переносимо - команда
     в іншому сезоні могла бути інша."""
-    media = driver_media(year, code) if year else {"headshot_url": None, "team_color": None}
+    media = driver_media(year, code, borrow_headshot=False) if year else {"headshot_url": None, "team_color": None}
     if media["headshot_url"] or not code:
         return media
     own_years = sorted(int(y) for y in _results.loc[_results["driverId"] == driver_id, "year"].unique())
     for y in [y for y in own_years if not year or y > year] + [y for y in reversed(own_years) if year and y < year]:
-        photo = driver_media(y, code)["headshot_url"]
+        photo = driver_media(y, code, borrow_headshot=False)["headshot_url"]
         if photo:
             return {**media, "headshot_url": photo}
     return media

@@ -194,3 +194,56 @@ def test_event_summary_future_race_endpoint_returns_null(client):
 ])
 def test_endpoints_unknown_round_404(client, url):
     assert client.get(url).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Кольори команд і фото для FastF1-результатів (Live Timing закритий -
+# FastF1 віддає порожні TeamColor/HeadshotUrl)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("ergast, openf1", [
+    ("Red Bull", "Red Bull Racing"), ("RB F1 Team", "Racing Bulls"), ("RB F1 Team", "RB"),
+    ("Sauber", "Kick Sauber"), ("Alpine F1 Team", "Alpine"), ("Haas F1 Team", "Haas F1 Team"),
+])
+def test_team_names_from_ergast_and_openf1_match(ergast, openf1):
+    assert event_info._team_key(ergast) == event_info._team_key(openf1)
+
+
+def test_team_color_same_season_historic_and_nearest():
+    media = event_info.season_media(2024)
+    red_bull_2024 = next(d["team_color"] for d in media.values() if d["team"] == "Red Bull Racing")
+    assert event_info.team_color(2024, "Red Bull") == red_bull_2024
+    assert event_info.team_color(2019, "Racing Point") == "#F596C8"  # зникла команда
+    assert event_info.team_color(2018, "Sauber") == "#9B0000"        # не зелений Kick Sauber
+    assert event_info.team_color(2019, "Ferrari") is not None        # з найближчого сезону
+    assert event_info.team_color(2024, None) is None
+
+
+def test_fill_session_media_keeps_existing_and_fills_missing():
+    rows = [
+        {"Abbreviation": "VER", "TeamName": "Red Bull", "TeamColor": "", "HeadshotUrl": ""},
+        {"Abbreviation": "XXX", "TeamName": "Ferrari", "TeamColor": "123456", "HeadshotUrl": "own.png"},
+    ]
+    event_info.fill_session_media(rows, 2024)
+    assert rows[0]["TeamColor"] and not rows[0]["TeamColor"].startswith("#")
+    assert rows[0]["HeadshotUrl"].startswith("https://")
+    assert (rows[1]["TeamColor"], rows[1]["HeadshotUrl"]) == ("123456", "own.png")
+
+
+def test_headshot_not_borrowed_across_far_seasons():
+    # "VER" у 2014 - Жан-Ерік Вернь, а не Ферстаппен з довідника 2023+.
+    assert event_info.driver_media(2014, "VER")["headshot_url"] is None
+    assert event_info.driver_media(2022, "VER")["headshot_url"] is not None
+
+
+def test_results_endpoint_fills_team_colors(client, monkeypatch):
+    from app import fastf1_client
+    monkeypatch.setattr(fastf1_client, "get_session_results", lambda *a: [
+        {"Abbreviation": "NOR", "TeamName": "McLaren", "TeamColor": "", "HeadshotUrl": ""}])
+    row = client.get("/api/results/2024/6/R").json()[0]
+    assert row["TeamColor"] and row["HeadshotUrl"]
+
+
+def test_event_standings_constructors_have_team_color():
+    s = event_info.get_event_standings(2024, 6)
+    assert all(c["team_color"] for c in s["constructors"])

@@ -338,11 +338,7 @@ def get_driver_summary(year: int, round_number: int, session: str, driver: str) 
         raise FallbackUnavailable(tr("driver_not_in_session", driver=driver))
 
     code = row.get("Abbreviation") or wanted
-    media = event_info.driver_media(year, code)
-    if not row.get("TeamColor") and media["team_color"]:
-        row["TeamColor"] = media["team_color"].lstrip("#")  # FastF1 віддає колір без "#"
-    if not row.get("HeadshotUrl") and media["headshot_url"]:
-        row["HeadshotUrl"] = media["headshot_url"]
+    event_info.fill_session_media([row], year)
 
     laps = get_session_laps(year, round_number, session, [code])
     stints = []

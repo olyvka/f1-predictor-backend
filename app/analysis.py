@@ -252,6 +252,20 @@ def _feature_importance(model, top_n: int) -> list[dict]:
     ]
 
 
+def _quali_estimate(rows: pd.DataFrame) -> pd.Series:
+    """Місце в кваліфікації: фактичне, якщо вона вже була, інакше - місце
+    пілота в полі за середньою кваліфікацією останніх 5 етапів (для F1
+    Fantasy: очки за кваліфікацію й виграні в гонці позиції)."""
+    actual = pd.to_numeric(rows["quali_position"], errors="coerce")
+    if actual.notna().all():
+        return actual
+    recent = pd.to_numeric(rows.get("driver_avg_quali_5"), errors="coerce")
+    if recent is None or recent.isna().all():
+        return actual
+    estimate = recent.fillna(recent.max() + 1).rank(method="first")
+    return actual.fillna(estimate)
+
+
 def _determine_stage(race_date: pd.Timestamp, quali_date) -> str:
     today = pd.Timestamp(datetime.now(timezone.utc).date())
     if pd.notna(race_date) and today >= pd.Timestamp(race_date).normalize():
@@ -307,6 +321,7 @@ def _compute(year: int, round_number: int) -> dict:
         source = "live_fastf1_quali" if quali_available else "live_no_quali"
         notes.extend(live_notes)
     display = rows[["driverId", "grid", "quali_position"]].copy()
+    display["quali_estimate"] = _quali_estimate(rows)
 
     pred = predict_two_stage(dataset, bundle, rows, alpha=bundle.best_alpha)
     pred = pred.merge(display, on="driverId", how="left")
@@ -343,6 +358,7 @@ def _compute(year: int, round_number: int) -> dict:
             "team": r.constructor_name,
             "grid": _native(r.grid),
             "quali_position": _native(r.quali_position),
+            "quali_estimate": _native(r.quali_estimate),
             "predicted_position": _native(r.pred_rank),
             "expected_position": _native(r.expected_pos),
             "p_dnf": _native(r.p_dnf),
@@ -423,9 +439,10 @@ def analyze_race(year: int, round_number: int, refresh: bool = False) -> dict:
         with open(path, encoding="utf-8") as f:
             cached = json.load(f)
         if cached.get("model", {}).get("version") == MODEL_VERSION:
-            if _has_explanations(cached):
+            if _has_current_fields(cached):
                 return _localize(cached)
-            # Прогноз з кешу, порахований до появи пояснень: перераховуємо,
+            # Прогноз з кешу без новіших полів (пояснення, оцінка
+            # кваліфікації): перераховуємо,
             # але лише якщо дані не гірші за збережені (live-джерела з часом
             # можуть стати недоступними - тоді краще старий прогноз без
             # пояснень, ніж новий, побудований на меншому наборі даних).
@@ -443,8 +460,9 @@ def analyze_race(year: int, round_number: int, refresh: bool = False) -> dict:
     return _localize(result)
 
 
-def _has_explanations(result: dict) -> bool:
-    return any(p.get("explanation") for p in result.get("predictions", []))
+def _has_current_fields(result: dict) -> bool:
+    preds = result.get("predictions", [])
+    return any(p.get("explanation") for p in preds) and all("quali_estimate" in p for p in preds)
 
 
 def _save(path: str, result: dict) -> None:

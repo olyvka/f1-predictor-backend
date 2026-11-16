@@ -13,3 +13,6 @@ analysis_cache/
 
 # Порожня локальна БД, кодом не використовується
 *.db
+
+# Стан автооновлення з Kaggle (app/data_update.py) - свій на кожній машині
+data/kaggle_meta.json

@@ -54,11 +54,92 @@ def _load_media() -> dict:
 
 _media = _load_media()
 
+# Назви команд у Ergast/FastF1 і в OpenF1 різняться ("Red Bull" / "Red Bull
+# Racing", "RB F1 Team" / "Racing Bulls", "Sauber" / "Kick Sauber") -
+# порівнюємо за нормалізованим ключем.
+_TEAM_ALIASES = {"racingbulls": "rb", "visacashapprb": "rb"}
 
-def driver_media(year: int, code: str | None) -> dict:
-    """{headshot_url, team_color} пілота в сезоні або None-поля."""
-    entry = _media.get(str(year), {}).get(str(code).upper(), {}) if code else {}
-    return {"headshot_url": entry.get("headshot_url"), "team_color": entry.get("team_color")}
+# Команди 2018-2022, яких уже нема в довіднику OpenF1 (2023+): їхні кольори
+# тих років. Sauber - тут, бо в довіднику він зелений Kick Sauber 2024+.
+HISTORIC_TEAM_COLORS = {
+    "racingpoint": "#F596C8",
+    "forceindia": "#F596C8",
+    "renault": "#FFF500",
+    "tororosso": "#469BFF",
+    "sauber": "#9B0000",
+}
+# Фото пілота з іншого сезону - не далі за стільки років (коди пілотів
+# повторювались: "VER" - і Вернь у 2014, і Ферстаппен).
+HEADSHOT_MAX_YEARS = 5
+
+
+def _team_key(name) -> str:
+    key = re.sub(r"[^a-z0-9]", "", str(name or "").lower())
+    for suffix in ("f1team", "racing"):
+        if key.endswith(suffix) and len(key) > len(suffix):
+            key = key[: -len(suffix)]
+    if key.startswith("kick"):
+        key = key[4:]
+    return _TEAM_ALIASES.get(key, key)
+
+
+def _season_team_colors(media: dict) -> dict:
+    return {year: {_team_key(d.get("team")): d["team_color"] for d in drivers.values()
+                   if d.get("team") and d.get("team_color")}
+            for year, drivers in media.items()}
+
+
+_team_colors = _season_team_colors(_media)
+
+
+def _nearest_seasons(year: int, max_years: int | None = None) -> list[str]:
+    seasons = sorted(_media, key=lambda y: (abs(int(y) - year), -int(y)))
+    return [y for y in seasons if max_years is None or abs(int(y) - year) <= max_years]
+
+
+def team_color(year: int, team) -> str | None:
+    """Колір команди ("#RRGGBB"): з довідника цього сезону, для зниклих
+    команд - HISTORIC_TEAM_COLORS, інакше - з найближчого сезону, де команда є."""
+    key = _team_key(team)
+    if not key:
+        return None
+    if key in _team_colors.get(str(year), {}):
+        return _team_colors[str(year)][key]
+    if key in HISTORIC_TEAM_COLORS:
+        return HISTORIC_TEAM_COLORS[key]
+    for season in _nearest_seasons(year):
+        if key in _team_colors[season]:
+            return _team_colors[season][key]
+    return None
+
+
+def driver_media(year: int, code: str | None, team=None, borrow_headshot: bool = True) -> dict:
+    """{headshot_url, team_color} пілота в сезоні. Чого нема в довіднику
+    цього сезону: фото - з найближчого сезону (до HEADSHOT_MAX_YEARS;
+    borrow_headshot=False - лише цей сезон), колір - за командою (team_color())."""
+    code = str(code).upper() if code else None
+    entry = _media.get(str(year), {}).get(code, {}) if code else {}
+    headshot = entry.get("headshot_url")
+    if not headshot and code and borrow_headshot:
+        for season in _nearest_seasons(year, HEADSHOT_MAX_YEARS):
+            headshot = _media[season].get(code, {}).get("headshot_url")
+            if headshot:
+                break
+    return {"headshot_url": headshot, "team_color": entry.get("team_color") or team_color(year, team)}
+
+
+def fill_session_media(rows: list[dict], year: int) -> list[dict]:
+    """Доповнює рядки FastF1 (results/drivers) кольором команди й фото.
+    З жовтня 2026 Live Timing F1 відповідає 401, і FastF1 віддає результати
+    лише з Ergast - з порожніми TeamColor/HeadshotUrl. FastF1-формат: колір
+    без "#"."""
+    for row in rows:
+        media = driver_media(year, row.get("Abbreviation"), row.get("TeamName"))
+        if not row.get("TeamColor") and media["team_color"]:
+            row["TeamColor"] = media["team_color"].lstrip("#")
+        if not row.get("HeadshotUrl") and media["headshot_url"]:
+            row["HeadshotUrl"] = media["headshot_url"]
+    return rows
 
 
 def season_media(year: int) -> dict:
@@ -95,7 +176,7 @@ def _driver(row, year: int) -> dict:
         "code": None if pd.isna(row.code) else row.code,
         "full_name": f"{row.forename} {row.surname}",
         "team": row.team,
-        **driver_media(year, None if pd.isna(row.code) else row.code),
+        **driver_media(year, None if pd.isna(row.code) else row.code, row.team),
     }
 
 
@@ -157,7 +238,7 @@ def _session_summary(rows: pd.DataFrame, year: int, pole_row=None) -> dict:
                 "code": None if pd.isna(r["code"]) else r["code"],
                 "full_name": f"{r['forename']} {r['surname']}",
                 "team": r["team"],
-                **driver_media(year, None if pd.isna(r["code"]) else r["code"]),
+                **driver_media(year, None if pd.isna(r["code"]) else r["code"], r["team"]),
                 "grid": int(r["grid"]),
                 "pit_lane_start": bool(r["grid"] == 0),
                 "position": int(r["position"]),
@@ -279,12 +360,12 @@ def get_event_standings(year: int, round_number: int) -> dict:
     def enrich_driver(r):
         code = None if pd.isna(r.code) else r.code
         return {"driver_id": int(r.driverId), "code": code, "full_name": f"{r.forename} {r.surname}",
-                "team": team_of.get(r.driverId), **driver_media(year, code)}
+                "team": team_of.get(r.driverId), **driver_media(year, code, team_of.get(r.driverId))}
 
     constructors = _constructor_standings.merge(_constructors_slim, on="constructorId", how="left")
 
     def enrich_constructor(r):
-        return {"constructor_id": int(r.constructorId), "team": r.team}
+        return {"constructor_id": int(r.constructorId), "team": r.team, "team_color": team_color(year, r.team)}
 
     return {
         "as_of_round": int(as_of["round"]),
