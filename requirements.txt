@@ -2,6 +2,8 @@ fastapi==0.115.0
 uvicorn[standard]==0.30.6
 fastf1==3.7.0
 python-dotenv==1.0.1
+# Live-гонка через MQTT OpenF1 (app/live_feed.py, потрібна підписка)
+paho-mqtt==2.1.0
 # Автооновлення data/*.csv з Kaggle (app/data_update.py)
 kagglehub==0.3.13
 pandas==2.2.2

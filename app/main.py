@@ -1,12 +1,20 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
 
-from app import analysis, csv_data, data_update, driver_stats, event_info, fallback, fastf1_client, predictor
-from app.i18n import LanguageMiddleware, tr
+# .env до імпорту модулів app: вони читають змінні середовища під час імпорту
+# (ліміти й облікові дані OpenF1, FRONTEND_ORIGIN тощо).
+load_dotenv()
+
+from fastapi import FastAPI, HTTPException, Query, WebSocket  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+
+from app import (analysis, csv_data, data_update, driver_stats, event_info, fallback, fastf1_client,  # noqa: E402
+                 live_feed, live_replay, openf1_client, predictor)
+from app.i18n import LanguageMiddleware, tr  # noqa: E402
 
 
 @asynccontextmanager
@@ -406,3 +414,44 @@ def race_analysis(year: int, round_number: int, refresh: bool = False):
     except Exception as e:
         raise HTTPException(status_code=500, detail=tr("analysis_failed", error=e))
 
+
+@app.websocket("/ws/replay/{year}/{round_number}/{session}")
+async def session_replay(
+    websocket: WebSocket, year: int, round_number: int, session: str,
+    speed: float = 1.0, offset: float = 0.0,
+):
+    """Replay минулої сесії (OpenF1, 2023+) "як наживо": позиції на карті,
+    телеметрія, кола, інтервали, race control - тим самим потоком, що й
+    майбутній live-режим. speed - прискорення (0.25-20), offset - з якої
+    секунди від запланованого старту сесії почати. Під час програвання
+    клієнт може слати {"action": "pause" | "resume"} і
+    {"action": "speed", "value": 5}. Протокол - README, "Replay сесії"."""
+    await websocket.accept()
+    try:
+        # Обидва кроки блокуючі (мережа, ліміт OpenF1, календар FastF1) -
+        # у потоці, щоб не зупиняти event loop для інших клієнтів.
+        info = await asyncio.to_thread(openf1_client.find_session, year, round_number, session)
+        intro, player = await asyncio.to_thread(live_replay.prepare_replay, info, offset, speed)
+    except Exception as e:
+        await websocket.send_json({"type": "error", "detail": tr("replay_unavailable", error=e)})
+        await websocket.close(code=1011)
+        return
+    await websocket.send_json(intro)
+    await live_replay.stream(websocket, player)
+
+
+@app.get("/api/live/status")
+def live_status():
+    """Чи можна зараз дивитись гонку наживо: {configured (є облікові дані
+    підписки OpenF1), status: live | upcoming | none | not_configured, session,
+    opens_at (коли відкриється live-вікно, за 30 хв до старту), viewers}."""
+    return live_feed.live_status()
+
+
+@app.websocket("/ws/live")
+async def live_session(websocket: WebSocket):
+    """Поточна сесія наживо (платна підписка OpenF1) - той самий протокол, що й
+    /ws/replay, але mode "live" і без керування. Поза live-вікном приходить
+    {"type": "waiting", session, opens_at} і з'єднання закривається. Протокол -
+    README, "Live-сесія через WebSocket"."""
+    await live_feed.serve(websocket)

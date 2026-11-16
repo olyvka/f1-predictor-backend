@@ -57,7 +57,10 @@ class LanguageMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
+        # WebSocket (/ws/replay) теж: мова з ?lang= / Accept-Language
+        # handshake-запиту. Заголовки нижче чіпаються лише в
+        # http.response.start, тож WS-повідомлення проходять без змін.
+        if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
             return
 
@@ -147,6 +150,26 @@ MESSAGES: dict[str, dict[str, str]] = {
     "openf1_rate_limited": {
         "uk": "OpenF1 не відповідає (ліміт запитів): {path}",
         "en": "OpenF1 is not responding (rate limit): {path}",
+    },
+    "live_not_configured": {
+        "uk": "Live недоступний: на сервері не налаштовано підписку OpenF1 (OPENF1_USERNAME / OPENF1_PASSWORD)",
+        "en": "Live is unavailable: the OpenF1 subscription is not configured on the server (OPENF1_USERNAME / OPENF1_PASSWORD)",
+    },
+    "live_unavailable": {
+        "uk": "Не вдалося підключитися до live-даних: {error}",
+        "en": "Could not connect to live data: {error}",
+    },
+    "replay_unavailable": {
+        "uk": "Не вдалося запустити replay сесії: {error}",
+        "en": "Could not start the session replay: {error}",
+    },
+    "replay_failed": {
+        "uk": "Replay зупинено через помилку: {error}",
+        "en": "Replay stopped due to an error: {error}",
+    },
+    "replay_bad_command": {
+        "uk": "Невідома команда replay: {command}. Доступні: pause, resume, speed",
+        "en": "Unknown replay command: {command}. Available: pause, resume, speed",
     },
     "openf1_since": {
         "uk": "OpenF1 має дані лише з {year} року",

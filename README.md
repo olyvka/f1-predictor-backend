@@ -86,12 +86,98 @@ brew install libomp
 | GET | `/api/weather/{year}/{round}/{session}` | FastF1 | Погода сесії |
 | GET | `/api/predict/{year}/{round}` | FastF1 | Передбачення (зараз заглушка) |
 | GET | `/api/analysis/{year}/{round}?refresh=true` | ML | Аналіз прогнозу гонки (реальна модель v2.0, кешується на диск) |
+| WS | `/ws/replay/{year}/{round}/{session}?speed=&offset=` | OpenF1 | Replay минулої сесії "як наживо" - див. нижче |
+| WS | `/ws/live` | OpenF1 (підписка) | Поточна сесія наживо - див. нижче |
+| GET | `/api/live/status` | OpenF1 | Чи є зараз live і коли найближча сесія |
 
 `/api/csv/results` і `/api/csv/drivers` - **не заміна** `/api/results`/`/api/drivers`:
 менший набір полів (немає `TeamColor`/`HeadshotUrl`/`BroadcastName` - їх у CSV нема),
 підтримують лише R/Q/S (практики FP1-3 у Ergast-датасеті результатів не мають).
 `FRONTEND_REQUIREMENTS.md` описує контракт саме FastF1-ендпоінтів - на нього й
 орієнтуйся, якщо вже підключив фронт до `/api/results`.
+
+## Replay сесії через WebSocket
+
+`WS /ws/replay/{year}/{round}/{session}?speed=1&offset=0&lang=uk` програє минулу сесію
+(OpenF1, з 2023) **як наживо**: позиції машин на карті, телеметрію, кола, інтервали,
+race control. Історичні дані OpenF1 безкоштовні, ключ не потрібен. Модуль -
+`app/live_replay.py`.
+
+Навіщо: перевірити live-режим фронта без справжньої гонки. Live-фід OpenF1
+(MQTT/WebSocket, платний) шле ті самі записи, що й REST, тому майбутнє live-джерело
+віддаватиме **той самий протокол**, і фронт не доведеться переписувати.
+
+- `speed` - прискорення від 0.25 до 20. Без кешу мережа OpenF1 витримує приблизно ×10;
+  швидше replay буферизується (годинник чекає на дані, а не губить їх).
+- `offset` - з якої секунди від **запланованого** старту сесії почати. Наприклад,
+  `offset=600` починає з 10-ї хвилини гонки. Може бути від'ємним (до години).
+
+```js
+const ws = new WebSocket("ws://localhost:8000/ws/replay/2026/20/R?speed=5&offset=600");
+ws.onmessage = (e) => console.log(JSON.parse(e.data));
+ws.send(JSON.stringify({ action: "pause" }));            // і "resume"
+ws.send(JSON.stringify({ action: "speed", value: 10 }));
+```
+
+Повідомлення сервера (JSON, поле `type`):
+
+| `type` | Коли | Вміст |
+|---|---|---|
+| `session` | першим (через ~3-8 с: сервер тягне дані сесії) | `session` (назва, траса, дати, `gmt_offset` траси, наприклад `"-03:00:00"`), `drivers` (номер, абревіатура, команда, `team_colour`, фото), `track.points` (контур траси `[[x, y], ...]` з найшвидшого кола, або `null`), `grid` (`{номер_пілота: стартова_позиція}` для гонки/спринту, інакше `null`), `replay` (`start`, `end`, `speed`) |
+| `batch` + `catchup: true` | другим | стан на момент `start`: усі кола, стінти й race control до цієї миті, а також останні `position` / `intervals` на пілота й погода |
+| `batch` | ~4 рази на секунду | `clock` (час replay, UTC) і `events: [{topic, data}]`, впорядковані за `data.date` |
+| `state` | у відповідь на команду | `paused`, `speed`, `clock` |
+| `error` | невідома команда або збій | `detail` (мовою `?lang=`) |
+| `end` | кінець сесії | `clock`; після цього сервер закриває з'єднання |
+
+`topic` - назва ендпоінта OpenF1, `data` - його запис без `session_key`/`meeting_key`:
+
+- `location` (x, y, z, ~3.7 Гц на пілота);
+- `car_data` (speed, throttle, brake, n_gear, rpm, drs, ~3.7 Гц);
+- `position`, `intervals` (gap_to_leader, interval; лише гонки);
+- `laps` (приходить, коли коло завершене);
+- `stints` (приходить на старті стінту);
+- `pit`, `race_control`, `weather`.
+
+Поля збігаються з [документацією OpenF1](https://openf1.org/docs/).
+
+Карта: `location.x/y` і `track.points` у тій самій системі координат, тож досить одного
+масштабу. Координати лише вздовж траси (без положення поперек), тож між точками
+(~0.27 с) варто інтерполювати.
+
+## Live-сесія через WebSocket
+
+`WS /ws/live?lang=uk` - поточна сесія **наживо** тим самим протоколом, що й replay
+(`mode: "live"`, `replay: null`, без команд pause/speed). Потрібна платна підписка
+OpenF1 (Sponsor, €9.90/міс). Модуль - `app/live_feed.py`.
+
+**Налаштування:** скопіюйте `.env.example` у `.env` і впишіть `OPENF1_USERNAME` /
+`OPENF1_PASSWORD` (логін і пароль, які OpenF1 видає після оплати) та
+`OPENF1_PER_MINUTE=58`. Без облікових даних live вимкнено, replay працює як раніше.
+
+Як це влаштовано:
+
+- **Токен.** Бекенд міняє логін і пароль на OAuth2-токен (`POST https://api.openf1.org/token`),
+  оновлює його за 5 хв до кінця години й після 401. Облікові дані ніколи не йдуть на фронт.
+  Якщо отримати токен не вдалося, REST-запити йдуть анонімно: історичні дані й replay
+  працюють, live - ні.
+- **Одне MQTT-підключення на сервер** (`mqtt.openf1.org:8883`, TLS, пароль = токен) на всіх
+  глядачів. Підключається з першим глядачем і закривається через хвилину після останнього.
+- **Стан для нових глядачів:** на старті хаб тягне сесію через REST (з токеном), далі веде
+  стан сам. Глядач отримує `session` → `batch` з `catchup: true` → батчі ~4 рази на секунду.
+- **Кола** live-фід шле на старті кола й потім оновлює. Хаб пересилає коло, коли воно
+  завершене (як replay), тож фронт не відрізняє live від replay.
+- **Вікно.** OpenF1 віддає live від 30 хв до старту до 30 хв після кінця сесії. Поза ним
+  `/ws/live` відповідає `{"type": "waiting", status, session, opens_at, calendar}` і
+  закриває з'єднання. Наприкінці вікна глядачі отримують `end`.
+
+| | |
+|---|---|
+| `GET /api/live/status` | `{configured, status: live \| upcoming \| none \| not_configured, session, opens_at, calendar: {year, round, session}, viewers}` |
+| `WS /ws/live` | `session` / `batch` / `end` / `waiting` / `error` |
+
+Ліцензія OpenF1: дані для особистого некомерційного використання (CC BY-NC-SA 4.0).
+Для комерційного застосунку потрібна окрема домовленість з OpenF1.
 
 ## Мова відповідей
 
